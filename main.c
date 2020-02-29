@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdbool.h>
 
+
 int * RDM(char file[255], int size);
 int * LRU(char file[255], int size);
 long * FIFO(char file[255], int size, long* values);
