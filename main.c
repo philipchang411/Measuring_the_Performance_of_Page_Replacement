@@ -3,10 +3,10 @@
 #include <string.h>
 #include <stdbool.h>
 
-int * RDM(char file[255], int size);
-int * LRU(char file[255], int size);
+int * RDM(char file[255], int size, long* values);
+int * LRU(char file[255], int size, long* values);
 long * FIFO(char file[255], int size, long* values);
-int * VMS(char file[255], int size);
+int * VMS(char file[255], int size, long* values);
 
 int main(int argc, const char* argv[])
 {
@@ -40,7 +40,6 @@ int main(int argc, const char* argv[])
 
     //Determines which function to be directed to
     strcpy(temp, argv[3]);
-    printf("Process: %s", temp);
     if(strcmp(temp, "fifo") == 0 || strcmp(temp, "FIFO") == 0)
         values = FIFO(temp1, size, tempArray);
     else if(strcmp(temp, "LRU") == 0 || strcmp(temp, "lru") == 0)
@@ -64,7 +63,7 @@ int main(int argc, const char* argv[])
     return 0;
 }
 
-int * RDM(char file[255], int size)
+int * RDM(char file[255], int size, long* values)
 {
     FILE *inputFile = fopen(file, "r");
     char temp[255];
@@ -90,10 +89,10 @@ int * RDM(char file[255], int size)
     }
 
     fclose(inputFile);
-    return 0;
+    return values;
 }
 
-int * LRU(char file[255], int size)
+int * LRU(char file[255], int size, long* values)
 {
     FILE *inputFile = fopen(file, "r");
     char temp[255];
@@ -119,7 +118,7 @@ int * LRU(char file[255], int size)
     }
 
     fclose(inputFile);
-    return 0;
+    return values;
 }
 
 //Needs to use a queue in order to keep track of whick to replace
@@ -234,14 +233,13 @@ long * FIFO(char file[255], int size, long* values)
     }
 
     fclose(inputFile);
-    //printf("TEST VALUES: LINES: %ld \n READS: %ld \n WRITES: %ld\n", totalLines, diskReads, diskWrites);
     values[0] = diskReads;
     values[1] = diskWrites;
     values[2] = totalLines;
     return values;
 }
 
-int * VMS(char file[255], int size)
+int * VMS(char file[255], int size, long* values)
 {
     FILE *inputFile = fopen(file, "r");
     char temp[255];
@@ -267,5 +265,5 @@ int * VMS(char file[255], int size)
     }
 
     fclose(inputFile);
-    return 0;
+    return values;
 }
