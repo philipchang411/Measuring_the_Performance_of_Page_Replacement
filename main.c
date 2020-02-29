@@ -3,17 +3,10 @@
 #include <string.h>
 #include <stdbool.h>
 
-<<<<<<< Updated upstream
-int RDM();
-int LRU();
-int FIFO();
-int VMS();
-=======
 int * RDM(char file[255], int size);
 int * LRU(char file[255], int size);
 long * FIFO(char file[255], int size, long* values);
 int * VMS(char file[255], int size);
->>>>>>> Stashed changes
 
 int main(int argc, const char* argv[])
 {
@@ -23,33 +16,66 @@ int main(int argc, const char* argv[])
     long tempArray[3];
     long* values;
 
+    //If there isn't any arguments
     if(argc == 1)
     {
         printf("You did not provide any arguments.\n");
         exit(0);
     }
 
+    //Needs five arguments to work
     if(argc != 5)
     {
         printf("You did not provide enough arguments.\n");
         exit(0);
     }
-    
-    //Grabs the file name and opens the file
-    char temp[255];
-    strcpy(temp, argv[1]);
-    FILE *inputFile = fopen(temp, "r");
 
+    char temp[255];
+    strcpy(temp, argv[2]);
+    int size = atoi(temp);
+
+    //Grabs the file name
+    char temp1[255];
+    strcpy(temp1, argv[1]);
+
+    //Determines which function to be directed to
+    strcpy(temp, argv[3]);
+    printf("Process: %s", temp);
+    if(strcmp(temp, "fifo") == 0 || strcmp(temp, "FIFO") == 0)
+        values = FIFO(temp1, size, tempArray);
+    else if(strcmp(temp, "LRU") == 0 || strcmp(temp, "lru") == 0)
+        LRU(temp1, size);
+    else if(strcmp(temp, "RDM") == 0 || strcmp(temp, "rdm") == 0)
+        RDM(temp1, size);
+    else if(strcmp(temp, "VMS") == 0 || strcmp(temp, "vms") == 0)
+        VMS(temp1, size);
+    else
+    {
+        printf("You did not input a valid function.\n");
+        exit(0);
+    }
+
+    //Outputs
+    printf("Total Memory Frames: %d\n", atoi(argv[2]));
+    printf("Events in trace: %ld\n", values[2]);
+    printf("Total Disk Reads: %ld\n", values[0]);
+    printf("Total Disk Write: %ld\n", values[1]);
+
+    return 0;
+}
+
+int * RDM(char file[255], int size)
+{
+    FILE *inputFile = fopen(file, "r");
+    char temp[255];
+    
     //Creates the Array based on the input
     struct page
     {
         char name[24];
         bool dirtyBit;
     };
-    strcpy(temp, argv[2]);
-    int size = atoi(temp);
     struct page pageTable[size];
-
     while (fscanf(inputFile, "%s", temp) == 1) // expect 1 successful conversion
     {
         printf("Line: %s\n", temp);
@@ -63,68 +89,45 @@ int main(int argc, const char* argv[])
         printf("Ummmm Idk\n");
     }
 
-    //Determines which function to be directed to
-    strcpy(temp, argv[3]);
-    printf("Process: %s", temp);
-    if(strcmp(temp, "fifo") == 0 || strcmp(temp, "FIFO") == 0)
-<<<<<<< Updated upstream
-        FIFO();
-=======
-        values = FIFO(temp1, size, tempArray);
->>>>>>> Stashed changes
-    else if(strcmp(temp, "LRU") == 0 || strcmp(temp, "lru") == 0)
-        LRU();
-    else if(strcmp(temp, "RDM") == 0 || strcmp(temp, "rdm") == 0)
-        RDM();
-    else if(strcmp(temp, "VMS") == 0 || strcmp(temp, "vms") == 0)
-        VMS();
+    fclose(inputFile);
+    return 0;
+}
+
+int * LRU(char file[255], int size)
+{
+    FILE *inputFile = fopen(file, "r");
+    char temp[255];
+    
+    //Creates the Array based on the input
+    struct page
+    {
+        char name[24];
+        bool dirtyBit;
+    };
+    struct page pageTable[size];
+    while (fscanf(inputFile, "%s", temp) == 1) // expect 1 successful conversion
+    {
+        printf("Line: %s\n", temp);
+    }
+    if (feof(inputFile)) 
+    {
+        printf("All done\n");
+    }
     else
     {
-        printf("You did not input a valid function.\n");
-        exit(0);
+        printf("Ummmm Idk\n");
     }
-
-    //Outputs
-    printf("Total Memory Frames: %d\n", atoi(argv[2]));
-    printf("Events in trace: %ld\n", values[2]);
-    printf("Total Disk Reads: %ld\n", values[0]);
-    printf("Total Disk Write: %ld\n", values[1]);
 
     fclose(inputFile);
     return 0;
 }
 
-<<<<<<< Updated upstream
-int RDM()
-=======
-int * RDM(char file[255], int size)
->>>>>>> Stashed changes
-{
-    return 0;
-}
-
-<<<<<<< Updated upstream
-int LRU()
-=======
-int * LRU(char file[255], int size)
->>>>>>> Stashed changes
-{
-    return 0;
-}
-
-<<<<<<< Updated upstream
-int FIFO()
-{
-    return 0;
-}
-
-int VMS()
-=======
 //Needs to use a queue in order to keep track of whick to replace
 long * FIFO(char file[255], int size, long* values)
 {
     FILE *inputFile = fopen(file, "r");
     char temp[255];
+    char address[255];
     char instruction[255];
     long diskReads =0;
     long diskWrites =0;
@@ -140,8 +143,13 @@ long * FIFO(char file[255], int size, long* values)
     int sizeOfTable = 0;
     int end = -1;
 
-    while (fscanf(inputFile, "%s", temp) == 1) // expect 1 successful conversion
+    while (fscanf(inputFile, "%s", address) == 1) // expect 1 successful conversion
     {
+        for(int i = 0; i < strlen(address)-3; i++)
+        {
+            temp[i] = address[i];
+        }
+
         fscanf(inputFile, "%s", instruction);
         bool present = false;
         //If writing to the desk, check to the address is presentin the stack. If not then write to the disk. If it is, write to the frame and make dirty bit
@@ -153,7 +161,6 @@ long * FIFO(char file[255], int size, long* values)
                 {
                     pageTable[i].dirtyBit = true;
                     present = true;
-                    diskWrites++;
                 }
             }
             //The data is not in the frames so you must insert
@@ -235,7 +242,30 @@ long * FIFO(char file[255], int size, long* values)
 }
 
 int * VMS(char file[255], int size)
->>>>>>> Stashed changes
 {
+    FILE *inputFile = fopen(file, "r");
+    char temp[255];
+    
+    //Creates the Array based on the input
+    struct page
+    {
+        char name[24];
+        bool dirtyBit;
+    };
+    struct page pageTable[size];
+    while (fscanf(inputFile, "%s", temp) == 1) // expect 1 successful conversion
+    {
+        printf("Line: %s\n", temp);
+    }
+    if (feof(inputFile)) 
+    {
+        printf("All done\n");
+    }
+    else
+    {
+        printf("Ummmm Idk\n");
+    }
+
+    fclose(inputFile);
     return 0;
 }
