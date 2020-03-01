@@ -152,20 +152,15 @@ long * RDM(char file[255], int size, long* values, bool debug)
                 if(sizeOfTable != size)
                 {
                     //INSERT for QUEUE Replaces the first input if it is full
-                    if(end == (size-1))
-                        end=-1;
-                    strcpy(pageTable[++end].name,temp);
+                    strcpy(pageTable[sizeOfTable-1].name,temp);
                     sizeOfTable++;
                 }
                 else
                 {
                     //In order to move each data over, strcpy everything over one and insert in the beginnging
-                    for(int i = 0; i > size-1; i++)
-                    {
-                        strcpy(pageTable[i].name, pageTable[i+1].name);
-                        pageTable[i].dirtyBit = pageTable[i+1].dirtyBit;
-                    }
-                    strcpy(pageTable[size-1].name,temp);
+                    int randomElement = rand() %size;
+                    struct page transfer = pageTable[randomElement];
+                    strcpy(pageTable[randomElement].name,temp);
                 }
             }
         }
