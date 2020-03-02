@@ -3,368 +3,477 @@
 #include <string.h>
 #include <stdbool.h>
 
-long * RDM(char file[255], int size, long* values, bool debug);
-long * LRU(char file[255], int size, long* values);
-long * FIFO(char file[255], int size, long* values, bool debug);
-long * VMS(char file[255], int size, long* values);
+//global variables so they don't need to be be passed to another function
+int reads, writes, traces, debugger;
+//instructions
+char rw;
+unsigned addr, process, nf;
+const char *fileName;
+struct queue *memory, *queue_A, *queue_B, *clean, *dirty;
 
-int main(int argc, const char* argv[])
+//structure for every individual frame
+struct page
 {
-    long totalLines;
-    long diskReads; 
-    long diskWrites;
-    long tempArray[3];
-    long* values;
-    bool debug;
-    //If there isn't any arguments
-    if(argc == 1)
+    unsigned page_frame;
+    int dirty;
+};
+
+//structure for the entire virtual memory
+struct queue
+{
+    struct page *page_table;
+    int size;
+    int index;
+};
+
+//Helper function that will insert tsecond parameter by copying it 
+void insert(struct queue *q, struct page *pageChecked)
+{
+    q->page_table[q->index].page_frame = pageChecked->page_frame;
+    q->page_table[q->index].dirty = pageChecked->dirty;
+    q->index = q->index + 1;
+};
+
+//Help function for deleting an element and moving everything accordingly. Need to move the surrounding elements
+void delete (struct queue *q)
+{
+    int i;
+    for (i = 0; i < q->index - 1; i++)
     {
-        printf("You did not provide any arguments.\n");
-        exit(0);
+        q->page_table[i].page_frame = q->page_table[i + 1].page_frame;
+        q->page_table[i].dirty = q->page_table[i + 1].dirty;
     }
 
-    //Needs five arguments to work
-    if(argc != 5)
+    q->page_table[q->index - 1].page_frame = 0;
+    q->page_table[q->index - 1].dirty = 0;
+    if (q->index != 0)
+        q->index = q->index - 1;
+};
+
+//Searches the current virtual addresses until it locates the desired address
+int findIndex(struct queue *q, struct page *pageChecked)
+{
+    int i;
+    for (i = 0; i < q->index; i++)
     {
-        printf("You did not provide enough arguments.\n");
-        exit(0);
+        if (q->page_table[i].page_frame == pageChecked->page_frame)
+            return i;
     }
 
-    char temp[255];
-    strcpy(temp, argv[2]);
-    int size = atoi(temp);
+    return -1;
+};
 
-    //Grabs the file name
-    char temp1[255];
-    strcpy(temp1, argv[1]);
-
-    if(strcmp(argv[4], "debug")==0)
-        debug=true;
-    //Determines which function to be directed to
-    strcpy(temp, argv[3]);
-    if(strcmp(temp, "fifo") == 0 || strcmp(temp, "FIFO") == 0)
-        values = FIFO(temp1, size, tempArray, debug);
-    else if(strcmp(temp, "LRU") == 0 || strcmp(temp, "lru") == 0)
-        LRU(temp1, size, tempArray);
-    else if(strcmp(temp, "RDM") == 0 || strcmp(temp, "rdm") == 0)
-        values = RDM(temp1, size, tempArray, debug);
-    else if(strcmp(temp, "VMS") == 0 || strcmp(temp, "vms") == 0)
-        VMS(temp1, size, tempArray);
-    else
+//Deletes but doesn't delete the actual element. Instead. It just moves all the information. Makes room without deleting. 
+void shiftRight(struct queue *q, int start)
+{
+    int i;
+    for (i = start; i < q->index - 1; i++)
     {
-        printf("You did not input a valid function.\n");
-        exit(0);
+        q->page_table[i].page_frame = q->page_table[i + 1].page_frame;
+        q->page_table[i].dirty = q->page_table[i + 1].dirty;
     }
 
-    //Outputs
-    printf("Total Memory Frames: %d\n", atoi(argv[2]));
-    printf("Events in trace: %ld\n", values[2]);
-    printf("Total Disk Reads: %ld\n", values[0]);
-    printf("Total Disk Write: %ld\n", values[1]);
-
-    return 0;
+    q->page_table[q->index - 1].page_frame = 0;
+    q->page_table[q->index - 1].dirty = 0;
 }
 
-long * RDM(char file[255], int size, long* values, bool debug)
+//Algoritm to remove the least recently used 
+void LRU(FILE **f, int frame, int debugger)
 {
-   FILE *inputFile = fopen(file, "r");
-    char temp[255];
-    char address[255];
-    char instruction[255];
-    long diskReads =0;
-    long diskWrites =0;
-    long totalLines=0;
-    //Creates the Array based on the input
-    struct page
+    memory = (struct queue *)malloc(sizeof(struct queue));
+    memory->page_table = (struct page *)malloc(sizeof(struct page) * frame);
+    memory->size = frame;
+    memory->index = 0;
+
+    reads = writes = traces;
+
+    while (fscanf(*f, "%x %c", &addr, &rw) != EOF)
     {
-        char name[24];
-        bool dirtyBit;
-    };
+        struct page *pageTraced;
+        pageTraced = (struct page *)malloc(sizeof(struct page));
+        pageTraced->page_frame = addr >> 12;
+        pageTraced->dirty = 0;
+        traces++;
 
-    struct page pageTable[size];
-    int sizeOfTable = 0;
-    int end = -1;
+        if (debugger == 0)
+        {
+            printf("Address requested: %x \n", addr);
+            printf("Page requested: %x \n", pageTraced->page_frame);
+        }
 
-    while (fscanf(inputFile, "%s", address) == 1) // expect 1 successful conversion
-    {
-        for(int i = 0; i < strlen(address)-3; i++)
+        //If the memory is present, do the following
+        if (findIndex(memory, pageTraced) != -1)
         {
-            temp[i] = address[i];
+            if (rw == 'W')
+                pageTraced->dirty = 1;
+            //Move everything over to account of the most recently used and move the most recently used to the "front"
+            shiftRight(memory, findIndex(memory, pageTraced));
+            memory->index = memory->index - 1;
+            insert(memory, pageTraced);
         }
-        
-        fscanf(inputFile, "%s", instruction);
-        bool present = false;
-        
-        if(debug == true)
-        {
-            printf("The current address: %s\nThe Current direction: %s\n", temp, instruction);
 
-            for(int i = 0; i < size; i++)
-            {
-                printf("Content in the %d element %s\n", i, pageTable[i].name);
-            }
-        }
-        //If writing to the desk, check to the address is presentin the stack. If not then write to the disk. If it is, write to the frame and make dirty bit
-        if(strcmp(instruction, "W"))
-        {
-            for(int i = 0; i < size; i++)
-            {
-                if(strcmp(pageTable[i].name, temp) == 0)
-                {
-                    pageTable[i].dirtyBit = true;
-                    present = true;
-                }
-            }
-            //The data is not in the frames so you must insert
-            if(present == false)
-            {
-                //The frames aren't full so you don't need to take out
-                if(sizeOfTable != size)
-                {
-                    //INSERT
-                    strcpy(pageTable[sizeOfTable-1].name,temp);
-                    sizeOfTable++;
-                }
-                else
-                {
-                    //In order to move each data over, strcpy everything over one and insert in the beginnging
-                    int randomElement = rand() %size;
-                    struct page transfer = pageTable[randomElement];
-                    strcpy(pageTable[randomElement].name,temp);
-                    if(pageTable[randomElement].dirtyBit)
-                        diskWrites++;
-                }
-                
-            }
-        }
-        //If the instruction is 'R'
+        //Address is not already present
         else
         {
-            for(int i = 0; i < size; i++)
+            //If the VM is full
+            if (memory->index == memory->size)
             {
-                if(strcmp(pageTable[i].name, temp) == 0)
-                    present = true;
+                if (memory->page_table[0].dirty == 1)
+                    writes++;
+                //move the frames over and make room for the new one
+                shiftRight(memory, 0);
+                memory->index = memory->index - 1;
             }
-            //If the data isn't there, add it to the frame
-            if(present == false)
-            {
-                diskReads++;
-                if(sizeOfTable != size)
-                {
-                    //INSERT for QUEUE Replaces the first input if it is full
-                    strcpy(pageTable[sizeOfTable-1].name,temp);
-                    sizeOfTable++;
-                }
-                else
-                {
-                    //In order to move each data over, strcpy everything over one and insert in the beginnging
-                    int randomElement = rand() %size;
-                    struct page transfer = pageTable[randomElement];
-                    strcpy(pageTable[randomElement].name,temp);
-                }
-            }
+            reads++;
+            if (rw == 'W')
+                pageTraced->dirty = 1;
+            insert(memory, pageTraced);
         }
-        totalLines++;
-    }
-    if (feof(inputFile)) 
-    {
-        printf("All done\n");
-    }
-    else
-    {
-        printf("Ummmm Idk\n");
-    }
 
-    fclose(inputFile);
-    values[0] = diskReads;
-    values[1] = diskWrites;
-    values[2] = totalLines;
-    return values;
+        if (debugger == 0)
+        {
+            printf("frames: %d \n", frame);
+            printf("traces: %d \n", traces);
+            printf("reads: %d \n", reads);
+            printf("writes: %d \n", writes);
+        }
+    }
+    fclose(*f);
+    free(memory->page_table);
+    free(memory);
+
+    if (debugger == 1)
+    {
+        printf("frames: %d \n", frame);
+        printf("traces: %d \n", traces);
+        printf("reads: %d \n", reads);
+        printf("writes: %d \n", writes);
+    }
 }
 
-long * LRU(char file[255], int size, long* values)
+//Algoritm to remove the element that was first added
+void FIFO(FILE **f, int frame, int debugger)
 {
-    FILE *inputFile = fopen(file, "r");
-    char temp[255];
-    
-    //Creates the Array based on the input
-    struct page
-    {
-        char name[24];
-        bool dirtyBit;
-    };
-    struct page pageTable[size];
-    while (fscanf(inputFile, "%s", temp) == 1) // expect 1 successful conversion
-    {
-        printf("Line: %s\n", temp);
-    }
-    if (feof(inputFile)) 
-    {
-        printf("All done\n");
-    }
-    else
-    {
-        printf("Ummmm Idk\n");
-    }
+    memory = (struct queue *)malloc(sizeof(struct queue));
+    memory->page_table = (struct page *)malloc(sizeof(struct page) * frame);
+    memory->size = frame;
+    memory->index = 0;
+    reads = writes = traces;
 
-    fclose(inputFile);
-    return values;
-}
-
-//Needs to use a queue in order to keep track of whick to replace
-long * FIFO(char file[255], int size, long* values, bool debug)
-{
-    FILE *inputFile = fopen(file, "r");
-    char temp[255];
-    char address[255];
-    char instruction[255];
-    long diskReads =0;
-    long diskWrites =0;
-    long totalLines=0;
-    //Creates the Array based on the input
-    struct page
+    while (fscanf(*f, "%x %c", &addr, &rw) != EOF)
     {
-        char name[24];
-        bool dirtyBit;
-    };
+        struct page *pageTraced;
+        pageTraced = (struct page *)malloc(sizeof(struct page));
+        pageTraced->page_frame = addr >> 12;
+        pageTraced->dirty = 0;
+        traces++;
 
-    struct page pageTable[size];
-    int sizeOfTable = 0;
-    int end = -1;
-
-    while (fscanf(inputFile, "%s", address) == 1) // expect 1 successful conversion
-    {
-        for(int i = 0; i < strlen(address)-3; i++)
+        if (debugger == 0)
         {
-            temp[i] = address[i];
+            printf("Address requested: %x \n", addr);
+            printf("Page requested: %x \n", pageTraced->page_frame);
         }
-        
-        fscanf(inputFile, "%s", instruction);
-        bool present = false;
-        
-        if(debug == true)
-        {
-            printf("The current address: %s\nThe Current direction: %s\n", temp, instruction);
 
-            for(int i = 0; i < size; i++)
-            {
-                printf("Content in the %d element %s\n", i, pageTable[i].name);
-            }
-        }
-        //If writing to the desk, check to the address is presentin the stack. If not then write to the disk. If it is, write to the frame and make dirty bit
-        if(strcmp(instruction, "W"))
+        //If the address is present
+        if (findIndex(memory, pageTraced) != -1)
         {
-            for(int i = 0; i < size; i++)
+            if (debugger == 0)
             {
-                if(strcmp(pageTable[i].name, temp) == 0)
-                {
-                    pageTable[i].dirtyBit = true;
-                    present = true;
-                }
+                printf("Page found in mmeory \n");
+                if (rw == 'W')
+                    printf("Page marked drity \n");
             }
-            //The data is not in the frames so you must insert
-            if(present == false)
-            {
-                //The frames aren't full so you don't need to take out
-                if(sizeOfTable != size)
-                {
-                    //INSERT for QUEUE Replaces the first input if it is full
-                    if(end == (size-1))
-                        end=-1;
-                    strcpy(pageTable[++end].name,temp);
-                    sizeOfTable++;
-                }
-                else
-                {
-                    //In order to move each data over, strcpy everything over one and insert in the beginnging
-                    for(int i = 0; i > size-1; i++)
-                    {
-                        strcpy(pageTable[i].name, pageTable[i+1].name);
-                        pageTable[i].dirtyBit = pageTable[i+1].dirtyBit;
-                    }
-                    if(pageTable[size-1].dirtyBit)
-                        diskWrites++;
-                    strcpy(pageTable[size-1].name,temp);
-                    pageTable[size-1].dirtyBit = true;
-                }
-                
-            }
+            if (rw == 'W')
+                memory->page_table[findIndex(memory, pageTraced)].dirty = 1;
         }
-        //If the instruction is 'R'
         else
         {
-            for(int i = 0; i < size; i++)
+            //If the memory is full, then do this
+            if (memory->index == memory->size)
             {
-                if(strcmp(pageTable[i].name, temp) == 0)
-                    present = true;
+                if (memory->page_table[0].dirty == 1)
+                    writes++;
+                delete (memory);
             }
-            //If the data isn't there, add it to the frame
-            if(present == false)
+
+            reads++;
+            if (rw == 'W')
+                pageTraced->dirty = 1;
+            insert(memory, pageTraced);
+        }
+
+        if (debugger == 0)
+        {
+            printf("frames: %d \n", frame);
+            printf("traces: %d \n", traces);
+            printf("reads: %d \n", reads);
+            printf("writes: %d \n", writes);
+        }
+    }
+    fclose(*f);
+    if (debugger == 1)
+    {
+        printf("frames: %d \n", frame);
+        printf("traces: %d \n", traces);
+        printf("reads: %d \n", reads);
+        printf("writes: %d \n", writes);
+    }
+}
+
+//Algorithm for VMS
+void VMS(FILE **f, int frame, int debugger)
+{
+
+    queue_A = (struct queue *)malloc(sizeof(struct queue));
+    queue_A->page_table = (struct page *)malloc(sizeof(struct page) * ((frame / 2) + 1));
+    queue_A->size = frame;
+    queue_A->index = 0;
+
+    queue_B = (struct queue *)malloc(sizeof(struct queue));
+    queue_B->page_table = (struct page *)malloc(sizeof(struct page) * ((frame / 2) + 1));
+    queue_B->size = frame;
+    queue_B->index = 0;
+
+    clean = (struct queue *)malloc(sizeof(struct queue));
+    clean->page_table = (struct page *)malloc(sizeof(struct page) * ((frame / 2) + 1));
+    clean->size = frame;
+    clean->index = 0;
+
+    dirty = (struct queue *)malloc(sizeof(struct queue));
+    dirty->page_table = (struct page *)malloc(sizeof(struct page) * ((frame / 2) + 1));
+    dirty->size = frame;
+    dirty->index = 0;
+
+    reads = writes = traces;
+
+    while (fscanf(*f, "%x %c", &addr, &rw) != EOF)
+    {
+        struct page *pageTraced;
+        pageTraced = (struct page *)malloc(sizeof(struct page));
+
+        struct page *temp;
+        temp = (struct page *)malloc(sizeof(struct page));
+
+        pageTraced->page_frame = addr >> 12;
+        pageTraced->dirty = 0;
+        traces++;
+
+        if (debugger == 0)
+        {
+            printf("Address requested: %x \n", addr);
+            printf("Page requested: %x \n", pageTraced->page_frame);
+        }
+
+        if ((findIndex(queue_A, pageTraced) != -1) || (findIndex(queue_B, pageTraced) != -1))
+        {
+            if (rw == 'W')
             {
-                diskReads++;
-                if(sizeOfTable != size)
+                if ((addr >> 28) == 3)
+                    queue_A->page_table[findIndex(queue_A, pageTraced)].dirty = 1;
+                else
+                    queue_B->page_table[findIndex(queue_B, pageTraced)].dirty = 1;
+            }
+        }
+        else
+        {
+            if (findIndex((clean), pageTraced) != -1)
+            {
+                temp->page_frame = pageTraced->page_frame;
+                temp->dirty = pageTraced->dirty;
+                shiftRight(clean, findIndex(clean, pageTraced));
+                clean->index = clean->index - 1;
+            }
+            else if (findIndex((dirty), pageTraced) != -1)
+            {
+                temp->page_frame = pageTraced->page_frame;
+                temp->dirty = pageTraced->dirty;
+                shiftRight(dirty, findIndex(clean, pageTraced));
+                dirty->index = dirty->index - 1;
+            }
+            else
+            {
+                reads++;
+                temp->page_frame = pageTraced->page_frame;
+                temp->dirty = pageTraced->dirty;
+            }
+            if ((queue_A->index) >= (frame >> 1) && (addr >> 28) == 3)
+            {
+                if (queue_A->page_table[queue_A->index - 1].dirty == 0)
                 {
-                    //INSERT for QUEUE Replaces the first input if it is full
-                    if(end == (size-1))
-                        end=-1;
-                    strcpy(pageTable[++end].name,temp);
-                    sizeOfTable++;
+                    insert(clean, (&queue_A->page_table[queue_A->index - 1]));
+                    shiftRight(queue_A, 0);
+                    queue_A->index = queue_A->index - 1;
                 }
                 else
                 {
-                    //In order to move each data over, strcpy everything over one and insert in the beginnging
-                    for(int i = 0; i > size-1; i++)
-                    {
-                        strcpy(pageTable[i].name, pageTable[i+1].name);
-                        pageTable[i].dirtyBit = pageTable[i+1].dirtyBit;
-                    }
-                    strcpy(pageTable[size-1].name,temp);
+                    insert(dirty, (&queue_A->page_table[queue_A->index - 1]));
+                    shiftRight(queue_A, 0);
+                    queue_A->index = queue_A->index - 1;
                 }
             }
+            if ((queue_B->index) >= (frame >> 1) && (addr >> 28) != 3)
+            {
+                if (queue_B->page_table[queue_B->index - 1].dirty == 0)
+                {
+                    insert(clean, (&queue_B->page_table[queue_B->index - 1]));
+                    shiftRight(queue_B, 0);
+                    queue_B->index = queue_B->index - 1;
+                }
+                else
+                {
+                    insert(dirty, (&queue_B->page_table[queue_B->index - 1]));
+                    shiftRight(queue_B, 0);
+                    queue_B->index = queue_B->index - 1;
+                }
+            }
+            if (((queue_A->index) + (queue_B->index) + (clean->index) + (dirty->index)) >= frame)
+            {
+                if (clean->index != 0)
+                {
+                    shiftRight(clean, 0);
+                    clean->index = clean->index - 1;
+                }
+                else if (dirty->index != 0)
+                {
+                    shiftRight(dirty, 0);
+                    dirty->index = dirty->index - 1;
+                    writes++;
+                }
+            }
+            if ((queue_A->index) < (frame >> 1) && (addr >> 28) == 3)
+            {
+                if (rw == 'W')
+                    temp->dirty = 1;
+                insert(queue_A, temp);
+            }
+            else if ((queue_B->index) < (frame >> 1) && (addr >> 28) != 3)
+            {
+                if (rw == 'W')
+                    temp->dirty = 1;
+                insert(queue_B, temp);
+            }
         }
-        totalLines++;
-    }
-    if (feof(inputFile)) 
-    {
-        printf("All done\n");
-    }
-    else
-    {
-        printf("Ummmm Idk\n");
+
+        if (debugger == 0)
+        {
+            printf("frames: %d \n", frame);
+            printf("traces: %d \n", traces);
+            printf("reads: %d \n", reads);
+            printf("writes: %d \n", writes);
+        }
     }
 
-    fclose(inputFile);
-    values[0] = diskReads;
-    values[1] = diskWrites;
-    values[2] = totalLines;
-    return values;
+    if (debugger == 1)
+    {
+        printf("frames: %d \n", frame);
+        printf("traces: %d \n", traces);
+        printf("reads: %d \n", reads);
+        printf("writes: %d \n", writes);
+    }
 }
 
-long * VMS(char file[255], int size, long* values)
+//Algoritm that randomly removes the element
+void RMD(FILE **f, int frame, int debugger)
 {
-    FILE *inputFile = fopen(file, "r");
-    char temp[255];
-    
-    //Creates the Array based on the input
-    struct page
+    memory = (struct queue *)malloc(sizeof(struct queue));
+    memory->page_table = (struct page *)malloc(sizeof(struct page) * frame);
+    memory->size = frame;
+    memory->index = 0;
+    reads = writes = traces;
+
+    while (fscanf(*f, "%x %c", &addr, &rw) != EOF)
     {
-        char name[24];
-        bool dirtyBit;
-    };
-    struct page pageTable[size];
-    while (fscanf(inputFile, "%s", temp) == 1) // expect 1 successful conversion
-    {
-        printf("Line: %s\n", temp);
+        struct page *pageTraced;
+        pageTraced = (struct page *)malloc(sizeof(struct page));
+        pageTraced->page_frame = addr >> 12;
+        pageTraced->dirty = 0;
+        traces++;
+
+        if (debugger == 0)
+        {
+            printf("Address requested: %x \n", addr);
+            printf("Page requested: %x \n", pageTraced->page_frame);
+        }
+
+        //If the address is there
+        if (findIndex(memory, pageTraced) != -1)
+        {
+            if (debugger == 0)
+            {
+                printf("Page found in memory \n");
+                if (rw == 'W')
+                    printf("Page marked dirty \n");
+            }
+            if (rw == 'W')
+                memory->page_table[findIndex(memory, pageTraced)].dirty = 1;
+        }
+
+        //Address is not there
+        else
+        {
+            //Only do this if the memory is full
+            if(memory->index == memory->size)
+            {
+                memory->index = rand()%(memory->size);
+                if (memory->page_table[0].dirty == 1)
+                    writes++;
+                delete(memory);
+            }
+
+            reads++;
+            if (rw == 'W')
+                pageTraced->dirty = 1;
+            
+            //Inserts the pageTraced into memory, which would be the previously deleted spot
+            insert(memory, pageTraced);
+        }
+
+        if (debugger == 0)
+        {
+            printf("frames: %d \n", frame);
+            printf("traces: %d \n", traces);
+            printf("reads: %d \n", reads);
+            printf("writes: %d \n", writes);
+        }
     }
-    if (feof(inputFile)) 
+    fclose(*f);
+    if (debugger == 1)
     {
-        printf("All done\n");
+        printf("frames: %d \n", frame);
+        printf("traces: %d \n", traces);
+        printf("reads: %d \n", reads);
+        printf("writes: %d \n", writes);
     }
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc != 5)
+        printf("Format: memsim tracefile nframes LRU|FIFO|VMS debug|quiet");
+
+    FILE *f;
+    f = fopen(argv[1], "r");
+
+    //Number of frames in Virtual Memory
+    int n = atoi(argv[2]);
+
+    if (!strcmp(argv[4], "debug"))
+        debugger = 0;
+    else if (!strcmp(argv[4], "quiet"))
+        debugger = 1;
+
+    //Determines what algorithm it uses. Takes capital and lower case
+    if (strcmp(argv[3], "LRU") == 0 || (strcmp(argv[3], "lru")) == 0)
+        LRU(&f, n, debugger);
+    else if (strcmp(argv[3], "FIFO")==0 || (strcmp(argv[3], "fifo")==0))
+        FIFO(&f, n, debugger);
+    else if (strcmp(argv[3], "VMS") ==0||(strcmp(argv[3], "vms"))==0)
+        VMS(&f, n, debugger);
+    else if(strcmp(argv[3], "RMD")==0|| (strcmp(argv[3], "rmd"))==0)
+        RMD(&f, n, debugger);
     else
     {
-        printf("Ummmm Idk\n");
+        printf("That method is not recognized");
+        return 0;
     }
-
-    fclose(inputFile);
-    return values;
 }
